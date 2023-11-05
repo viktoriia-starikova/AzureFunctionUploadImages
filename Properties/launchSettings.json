@@ -1,0 +1,14 @@
+{
+  "profiles": {
+    "AzureFunctionUploadImages2": {
+      "commandName": "Project",
+      "commandLineArgs": "--port 7225"
+    },
+    "Docker": {
+      "commandName": "Docker",
+      "launchUrl": "{Scheme}://{ServiceHost}:{ServicePort}",
+      "httpPort": 34139,
+      "useSSL": false
+    }
+  }
+}
