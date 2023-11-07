@@ -17,18 +17,22 @@ namespace ImageUploadAPI
 {
     public class PostImage
     {
+        private readonly string _storageConnectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage");
+        private readonly string _storageContainerName = Environment.GetEnvironmentVariable("ContainerName");
+        private readonly string _cosmosDBEndpoint = Environment.GetEnvironmentVariable("CosmosDBEndpoint");
+        private readonly string _cosmosDBKey = Environment.GetEnvironmentVariable("CosmosDBKey");
         private readonly ILogger<PostImage> _logger;
 
-        private Container container;
+        private Container _container;
 
         // Cosmos DB client instance
-        private CosmosClient cosmosClient;
+        private CosmosClient _cosmosClient;
+        private Database _database;
 
-        // Cosmos DB
-        private Database database;
+        // Blob storage
+        private const string DATABASE_ID = "Images";
+        private const string CONTAINER_ID = "TaskState";
 
-        private readonly string databaseId = "Images";
-        private readonly string containerId = "TaskState";
 
         public PostImage(ILogger<PostImage> log)
         {
@@ -41,9 +45,8 @@ namespace ImageUploadAPI
         {
             try
             {
-                Stream fileStream = new MemoryStream();
                 IFormFile file = req.Form.Files["File"];
-                fileStream = file.OpenReadStream();
+                using Stream fileStream = file.OpenReadStream();
 
                 BlobClient blobClient = GetBlobClient(file.FileName);
 
@@ -52,10 +55,8 @@ namespace ImageUploadAPI
                 var url = blobClient.Uri.ToString();
 
                 // Cosmos DB
-                SetUpCosmosClient();
-                await CreateDatabaseAsync();
-                await CreateContainerAsync();
-                var result = await AddTaskStateToContainerAsync(blobClient.Name, url, string.Empty, "created");
+                using CosmosClient cosmosClient = await SetUpCosmosClient();
+                var result = await AddTaskStateToContainerAsync(blobClient.Name, url, string.Empty, "Created");
 
                 // Service Bus Topic
                 await SendMessageToServiceBusTopic(result.TaskId);
@@ -64,7 +65,8 @@ namespace ImageUploadAPI
             }
             catch (Exception ex)
             {
-                throw ex;
+                _logger.LogError(ex.Message, ex);
+                throw;
             }
         }
 
@@ -74,10 +76,8 @@ namespace ImageUploadAPI
         {
             try
             {
-                SetUpCosmosClient();
-                await CreateDatabaseAsync();
-                await CreateContainerAsync();
-
+                using CosmosClient cosmosClient = await SetUpCosmosClient();
+                Console.WriteLine(cosmosClient == _cosmosClient);
                 string id = req.GetQueryParameterDictionary()["id"];
                 var result = await GetCosmosDBItemAsync(id);
                 if (result.ProcessedFilePath.Length > 0)
@@ -87,16 +87,19 @@ namespace ImageUploadAPI
             }
             catch (Exception ex)
             {
-                throw ex;
+                _logger.LogError(ex.Message, ex);
+                throw;
             }
         }
 
-        private void SetUpCosmosClient()
+        private async Task<CosmosClient> SetUpCosmosClient()
         {
-            string CosmosDBEndpoint = Environment.GetEnvironmentVariable("CosmosDBEndpoint");
-            string CosmosDBKey = Environment.GetEnvironmentVariable("CosmosDBKey");
+            _cosmosClient = new CosmosClient(_cosmosDBEndpoint, _cosmosDBKey, new CosmosClientOptions() { ApplicationName = "CosmosDB" });
 
-            this.cosmosClient = new CosmosClient(CosmosDBEndpoint, CosmosDBKey, new CosmosClientOptions() { ApplicationName = "CosmosDB" });
+            await CreateDatabaseAsync();
+            await CreateContainerAsync();
+
+            return _cosmosClient;
         }
 
         private async Task<TaskState> GetCosmosDBItemAsync(string id)
@@ -106,7 +109,7 @@ namespace ImageUploadAPI
             Console.WriteLine("Running query: {0}\n", sqlQueryText);
 
             QueryDefinition queryDefinition = new QueryDefinition(sqlQueryText);
-            FeedIterator<TaskState> queryResultSetIterator = this.container.GetItemQueryIterator<TaskState>(queryDefinition);
+            FeedIterator<TaskState> queryResultSetIterator = _container.GetItemQueryIterator<TaskState>(queryDefinition);
 
             List<TaskState> tasks = new List<TaskState>();
 
@@ -124,12 +127,12 @@ namespace ImageUploadAPI
 
         static async Task SendMessageToServiceBusTopic(string id)
         {
-            string connectionString = Environment.GetEnvironmentVariable("AzureWebJobsServiceBusTopic");
+            string busConnectionString = Environment.GetEnvironmentVariable("AzureWebJobsServiceBusTopic");
             string topicName = Environment.GetEnvironmentVariable("TopicName");
 
             var message = new Message(Encoding.UTF8.GetBytes(id));
 
-            var topicClient = new TopicClient(connectionString, topicName);
+            var topicClient = new TopicClient(busConnectionString, topicName);
 
             await topicClient.SendAsync(message);
         }
@@ -145,31 +148,28 @@ namespace ImageUploadAPI
                 TaskId = Guid.NewGuid().ToString()
             };
 
-            await this.container.CreateItemAsync<TaskState>(task);
-            return await this.container.ReadItemAsync<TaskState>(task.TaskId, new PartitionKey(task.TaskId));
+            await _container.CreateItemAsync<TaskState>(task);
+            return await _container.ReadItemAsync<TaskState>(task.TaskId, new PartitionKey(task.TaskId));
         }
 
         private async Task CreateDatabaseAsync()
         {
             // Create a new database
-            this.database = await this.cosmosClient.CreateDatabaseIfNotExistsAsync(databaseId);
-            Console.WriteLine("Created Database: {0}\n", this.database.Id);
+            _database = await _cosmosClient.CreateDatabaseIfNotExistsAsync(DATABASE_ID);
+            Console.WriteLine("Created Database: {0}\n", _database.Id);
         }
 
         private async Task CreateContainerAsync()
         {
             // Create a new container
-            this.container = await this.database.CreateContainerIfNotExistsAsync(containerId, "/id");
-            Console.WriteLine("Created Container: {0}\n", this.container.Id);
+            _container = await _database.CreateContainerIfNotExistsAsync(CONTAINER_ID, "/id");
+            Console.WriteLine("Created Container: {0}\n", _container.Id);
         }
 
         private BlobClient GetBlobClient(string fileName)
         {
             // Blob storage
-            string connection = Environment.GetEnvironmentVariable("AzureWebJobsStorage");
-            string containerName = Environment.GetEnvironmentVariable("ContainerName");
-
-            BlobContainerClient blobContainer = new BlobContainerClient(connection, containerName);
+            BlobContainerClient blobContainer = new BlobContainerClient(_storageConnectionString, _storageContainerName);
             BlobClient blobClient = blobContainer.GetBlobClient(fileName);
 
             return blobClient;
