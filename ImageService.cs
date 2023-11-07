@@ -17,22 +17,20 @@ namespace ImageUploadAPI
 {
     public class PostImage
     {
-        private readonly string _storageConnectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage");
-        private readonly string _storageContainerName = Environment.GetEnvironmentVariable("ContainerName");
-        private readonly string _cosmosDBEndpoint = Environment.GetEnvironmentVariable("CosmosDBEndpoint");
-        private readonly string _cosmosDBKey = Environment.GetEnvironmentVariable("CosmosDBKey");
+        private readonly string STORAGE_CONNECTION_STRING = Environment.GetEnvironmentVariable("AzureWebJobsStorage");
+        private readonly string STORAGE_CONTAINER_NAME = Environment.GetEnvironmentVariable("ContainerName");
+        private readonly string COSMOS_DB_ENDPOINT = Environment.GetEnvironmentVariable("CosmosDBEndpoint");
+        private readonly string COSMOS_DB_KEY = Environment.GetEnvironmentVariable("CosmosDBKey");
         private readonly ILogger<PostImage> _logger;
-
-        private Container _container;
 
         // Cosmos DB client instance
         private CosmosClient _cosmosClient;
         private Database _database;
+        private Container _container;
 
         // Blob storage
         private const string DATABASE_ID = "Images";
         private const string CONTAINER_ID = "TaskState";
-
 
         public PostImage(ILogger<PostImage> log)
         {
@@ -94,7 +92,7 @@ namespace ImageUploadAPI
 
         private async Task<CosmosClient> SetUpCosmosClient()
         {
-            _cosmosClient = new CosmosClient(_cosmosDBEndpoint, _cosmosDBKey, new CosmosClientOptions() { ApplicationName = "CosmosDB" });
+            _cosmosClient = new CosmosClient(COSMOS_DB_ENDPOINT, COSMOS_DB_KEY, new CosmosClientOptions() { ApplicationName = "CosmosDB" });
 
             await CreateDatabaseAsync();
             await CreateContainerAsync();
@@ -169,7 +167,7 @@ namespace ImageUploadAPI
         private BlobClient GetBlobClient(string fileName)
         {
             // Blob storage
-            BlobContainerClient blobContainer = new BlobContainerClient(_storageConnectionString, _storageContainerName);
+            BlobContainerClient blobContainer = new BlobContainerClient(STORAGE_CONNECTION_STRING, STORAGE_CONTAINER_NAME);
             BlobClient blobClient = blobContainer.GetBlobClient(fileName);
 
             return blobClient;
