@@ -1,5 +1,5 @@
 # AzureFunctionUploadImages
-- Frontend part - only swagger (no UI needed). ~~On the server side, we use Azure API Manager~~
+- Frontend part - only swagger (no UI needed). On the server side, we use Azure API Manager.
     1. Endpoint to send the images for processing:
     - Gets the file
     - Returns task **ID**
